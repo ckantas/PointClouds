@@ -1,6 +1,7 @@
 import open3d as o3d
 import sys
 
+point_cloud_path = '/home/chris/Code/PointClouds/data/VentilationGrate_2/VentilationGrate_2.ply'
 def_voxel_size = 2.5
 def_k_points = 5
 
@@ -49,7 +50,7 @@ def downsample_pcd(pcd, type):
                             print('Invalid input. Try again')
                         flag = False
                 else:   
-                    again = input('Invalid input. Try again? [y/n]:')
+                    again = input('Invalid parameter values. Try again? [y/n]:')
                     if again == 'y':
                         flag = False
                     else:
@@ -84,7 +85,7 @@ def downsample_pcd(pcd, type):
                             print('Invalid input. Try again')
                         flag = False
                 else:   
-                    again = input('Invalid input. Try again? [y/n]:')
+                    again = input('Invalid parameter values. Try again? [y/n]:')
                     if again == 'y':
                         flag = False
                     else:
@@ -98,12 +99,7 @@ def downsample_pcd(pcd, type):
         type = None
     return ds_pcd, voxel_size, k_points, type
 
-
-
-
-point_cloud_path = '/home/chris/Code/PointClouds/data/point_cloud_files/VentilationGrate_2.ply'
 pcd = o3d.io.read_point_cloud(point_cloud_path)
-
 type = None
 while type == None:
     type = input('Choose between voxel downsampling, uniform downsampling or exit code [v/u/e]:')
