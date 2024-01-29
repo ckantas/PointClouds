@@ -1,7 +1,7 @@
 import open3d as o3d
 
 print('Loading and displaying ply file...')
-ply_file_path = '/home/chris/Code/PointClouds/data/point_cloud_files/newtest.ply'
+ply_file_path = '/home/chris/Code/PointClouds/data/cubetest/PLY/Rectangle3cm.ply'
 
 point_cloud = o3d.io.read_point_cloud(ply_file_path)
 

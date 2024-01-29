@@ -1,8 +1,9 @@
 import open3d as o3d
 import os 
 import sys
+import copy
 
-point_cloud_path = '/home/chris/Code/PointClouds/data/VentilationGrate_2/VentilationGrate_2_voxeldown4.5.ply'
+point_cloud_path = '/home/chris/Code/PointClouds/data/point_cloud_files/VentilationGrate_2_unidownnew80.ply'
 
 output_path = os.path.splitext(point_cloud_path)[0] + '_or.ply'
 def_nb_neighbors = 80
@@ -69,7 +70,8 @@ while repeat == True:
     if apply == 'y':
         print('Removing points and visualizing point cloud...')
         point_cloud = new_point_cloud
-        point_cloud.paint_uniform_color([0.8,0.8,0.8])
+        vis_point_cloud = copy.deepcopy(point_cloud)
+        vis_point_cloud.paint_uniform_color([0.8,0.8,0.8])
         o3d.visualization.draw_geometries([point_cloud])
         repeat_input = input('Repeat process with same parameters? [y/n]:')
         if repeat_input == 'y':
