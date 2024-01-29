@@ -1,7 +1,8 @@
 import open3d as o3d
 import sys
+import os
 
-point_cloud_path = '/home/chris/Code/PointClouds/data/VentilationGrate_2/VentilationGrate_2.ply'
+point_cloud_path = '/home/chris/Code/PointClouds/data/point_cloud_files/VentilationGrate_2.ply'
 def_voxel_size = 2.5
 def_k_points = 5
 
@@ -107,14 +108,14 @@ while type == None:
 
 save = None
 while save == None:
-    save= input('\nSave downsampled point cloud? [y/n]:')
+    save= input('Save downsampled point cloud? [y/n]:')
     if save == 'y':
         if type == 'v':
-            output_path = point_cloud_path.split('.')[0]+'_voxeldown' + voxel_size + '.ply'
+            output_path = os.path.splitext(point_cloud_path)[0] +'_voxeldownnew' + voxel_size + '.ply'
             print(f'Saving in {output_path}')
             o3d.io.write_point_cloud(output_path, ds_pcd)
         elif type == 'u':
-            output_path = point_cloud_path.split('.')[0]+'_unidown' + k_points + '.ply'
+            output_path = os.path.splitext(point_cloud_path)[0] +'_unidownnew' + k_points + '.ply'
             print(f'Saving in {output_path}')
             o3d.io.write_point_cloud(output_path, ds_pcd)
         sys.exit()
