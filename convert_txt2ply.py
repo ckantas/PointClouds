@@ -1,6 +1,6 @@
 import open3d as o3d
 
-txt_path = '/home/chris/Code/PointClouds/data/3D_scans/VentilationGrate_2.txt'
+txt_path = '/home/chris/Code/PointClouds/data/GrateAndCover/Cover/cleaned_txt/Scan7cleaned.txt'
 output_path = txt_path.split('.')[0]+'.ply'
 
 print('Converting txt to ply...')
