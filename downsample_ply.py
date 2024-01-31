@@ -30,7 +30,7 @@ def downsample_pcd(pcd, type):
                 try: 
                     _ = float(voxel_size)
                 except:
-                    print('Value entered not a number')
+                    print('Value entered is not a number')
                     flag = False
                     continue
                 if float(voxel_size) >= 0.5 and float(voxel_size) <= 5:
@@ -65,7 +65,7 @@ def downsample_pcd(pcd, type):
                 try: 
                     _ = float(k_points)
                 except:
-                    print('Value entered not a number')
+                    print('Value entered is not a number')
                     flag = False
                     continue
                 if float(k_points) >= 2 and float(k_points) <= 500:
@@ -111,11 +111,11 @@ while save == None:
     save= input('Save downsampled point cloud? [y/n]:')
     if save == 'y':
         if type == 'v':
-            output_path = os.path.splitext(point_cloud_path)[0] +'_voxeldownnew' + voxel_size + '.ply'
+            output_path = os.path.splitext(point_cloud_path)[0] +'_voxeldown' + voxel_size + '.ply'
             print(f'Saving in {output_path}')
             o3d.io.write_point_cloud(output_path, ds_pcd)
         elif type == 'u':
-            output_path = os.path.splitext(point_cloud_path)[0] +'_unidownnew' + k_points + '.ply'
+            output_path = os.path.splitext(point_cloud_path)[0] +'_unidown' + k_points + '.ply'
             print(f'Saving in {output_path}')
             o3d.io.write_point_cloud(output_path, ds_pcd)
         sys.exit()

@@ -3,7 +3,7 @@ import os
 import sys
 import copy
 
-point_cloud_path = '/home/chris/Code/PointClouds/data/point_cloud_files/VentilationGrate_2_unidownnew80.ply'
+point_cloud_path = '/home/chris/Code/PointClouds/data/point_cloud_files/VentilationGrate_2_unidown80.ply'
 
 output_path = os.path.splitext(point_cloud_path)[0] + '_or.ply'
 def_nb_neighbors = 80
@@ -26,13 +26,13 @@ def different_params(point_cloud, nb_neighbors, std_ratio):
         if diff_params == 'y':
             flag = True
             while flag == True:
-                nb_neighbors = input(f'Choose nb_neighbors (default = {def_nb_neighbors}, allowed range 1-2000):')
+                nb_neighbors = input(f'Choose nb_neighbors (default = {def_nb_neighbors}, allowed range 1-2000): ')
                 std_ratio = input(f'Choose std_ratio (default = {def_std_ratio}, allowed range 1-5):')
                 try:
                     _ = int(nb_neighbors)
                     _ = float(std_ratio)
                 except:
-                    print('Value entered not a number')
+                    print('Value entered is not a number')
                     continue
                 if int(nb_neighbors) >= 1 and int(nb_neighbors) <= 2000 and float(std_ratio) >= 1 and float(std_ratio) <= 5:
                     print(f'Performing statistical outlier removal with parameters nb_neighbors = {nb_neighbors} and std_ratio = {std_ratio}')
