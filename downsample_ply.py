@@ -2,7 +2,7 @@ import open3d as o3d
 import sys
 import os
 
-point_cloud_path = '/home/chris/Code/PointClouds/data/point_cloud_files/VentilationGrate_2.ply'
+point_cloud_path = '/home/chris/Code/PointClouds/data/FLIPscans/GrateAndCover/Cover/CoverCleaned290k_extra_height.ply'
 def_voxel_size = 2.5
 def_k_points = 5
 
