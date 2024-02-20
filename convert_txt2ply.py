@@ -1,7 +1,8 @@
 import open3d as o3d
 
-txt_path = '/home/chris/Code/PointClouds/data/GrateAndCover/Cover/cleaned_txt/Scan7cleaned.txt'
-output_path = txt_path.split('.')[0]+'.ply'
+txt_path = '/home/chris/Code/PointClouds/data/FLIPscans/GrateAndCover/Cover/ScanData6.txt'
+#output_path = txt_path.split('.')[0]+'.ply'
+output_path = '/home/chris/Code/PointClouds/data/ply/ScanData6.ply'
 
 print('Converting txt to ply...')
 pcd = o3d.io.read_point_cloud(txt_path, format="xyz")
