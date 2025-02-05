@@ -1,7 +1,7 @@
 import open3d as o3d
 
 print('Loading and displaying ply file...')
-ply_file_path = '/home/chris/Code/PointClouds/data/FLIPscans/GrateAndCover/Cover/test.ply'
+ply_file_path = "/home/chris/Code/Edge_Extraction/resultsedges.ply"
 
 point_cloud = o3d.io.read_point_cloud(ply_file_path)
 
