@@ -34,6 +34,28 @@ def preProcessCloud(pcd, voxel_size=0.05, visualize=False, verbose=False):
 
     #o3d.visualization.draw_geometries([filtered_pcd, outliers])
 
+def detectPlanes(pcd, method='planar', pt_to_plane_dist=0.4, visualize=False, verbose=False):
+    if method == 'ransac':
+        segment_model, inliers = pcd.segment_plane(distance_threshold=pt_to_plane_dist,ransac_n=3,num_iterations=50000)
+        segment = pcd.select_by_index(inliers)
+        segment.paint_uniform_color([1,0,0])
+        rest = pcd.select_by_index(inliers, invert=True)
+        if visualize:
+            o3d.visualization.draw_geometries([segment, rest],zoom=zoom,front=front,lookat=lookat,up=up)
+        return segment_model, segment, rest
+    elif method == 'planar':
+        oboxes = planarPatches(pcd)
+
+        geometries = []
+        for obox in oboxes:
+            mesh = o3d.geometry.TriangleMesh.create_from_oriented_bounding_box(obox, scale=[1, 1, 0.0001])
+            mesh.paint_uniform_color(obox.color)
+            geometries.append(mesh)
+            geometries.append(obox)
+        if visualize:
+            o3d.visualization.draw_geometries(geometries,zoom=zoom,front=front,lookat=lookat,up=up)
+        return oboxes
+    
 def multiOrderRansac(pcd, max_plane_idx, pt_to_plane_dist, visualize=False, verbose=False):
     max_plane_idx = 7
     pt_to_plane_dist = 0.4
@@ -60,6 +82,14 @@ def multiOrderRansac(pcd, max_plane_idx, pt_to_plane_dist, visualize=False, verb
         o3d.visualization.draw_geometries([segments[i] for i in range(max_plane_idx)]+[rest],zoom=zoom,front=front,lookat=lookat,up=up)
 
     return segment_models, segments, main_surface_idx
+
+
+def planarPatches(pcd):
+    oboxes = pcd.detect_planar_patches(normal_variance_threshold_deg=20,coplanarity_deg=75,
+                                       outlier_ratio=0.2,min_plane_edge_length=0, min_num_points=0,
+                                       search_param=o3d.geometry.KDTreeSearchParamKNN(knn=30))
+
+    return oboxes
 
 def findAnglesBetweenPlanes(segment_models, main_surface_idx):
     angles_rad = {}
