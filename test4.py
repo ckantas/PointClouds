@@ -5,6 +5,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 import open3d as o3d
 import util
+from tqdm import tqdm
 
 kdtree = None
 
@@ -12,10 +13,10 @@ def init_kdtree(tree):
     global kdtree
     kdtree = tree
 
-def find_plane_directions(indices, points, k=5):
+def find_plane_directions(indices, points, radius=2):
     normals = []
     for idx in indices:
-        neighbor_indices = kdtree.query_ball_point(points[idx], 2)
+        neighbor_indices = kdtree.query_ball_point(points[idx], radius)
         neighbors = points[neighbor_indices]
         mean = np.mean(neighbors, axis=0)
         norm = neighbors - mean
@@ -27,10 +28,10 @@ def find_plane_directions(indices, points, k=5):
         normals.append(plane_direction)
     return normals  # Return normals instead of storing in shared array
 
-def calculate_normal_variation(indices, points, normals, k=5):
+def calculate_normal_variation(indices, points, normals, radius=2):
     eigenvalues = []
     for idx in indices:
-        neighbor_indices = kdtree.query_ball_point(points[idx], 2)
+        neighbor_indices = kdtree.query_ball_point(points[idx], radius)
         neighbor_normals = normals[neighbor_indices]
         mu = np.mean(neighbor_normals, axis=0)
         norm = neighbor_normals - mu
@@ -53,10 +54,10 @@ if __name__ == "__main__":
     chunk_size = len(myarray) // num_chunks
     chunked_indices = [indices[i:i + chunk_size] for i in range(0, len(indices), chunk_size)]
 
-    # Timing single-core execution
-    results_single = [find_plane_directions(chunk, myarray) for chunk in chunked_indices]
-    print("First 5 normals (single-core):")
-    print(results_single[0][:5])
+    # # Single-core execution check
+    # results_single = find_plane_directions(chunked_indices[0], myarray)
+    # print("First 5 normals (single-core):")
+    # print(results_single[:5])
 
     # First pass: Compute normals
     start_time_first_pca = time.time()
@@ -67,6 +68,11 @@ if __name__ == "__main__":
 
     # Flatten normals to a single array in order
     all_normals = np.vstack(normals_chunks)
+
+    # # Single-core execution check
+    # results_single = calculate_normal_variation(chunked_indices[0], myarray, all_normals)
+    # print("First 5 eigenvalues (single-core):")
+    # print(results_single[:5])
 
     # Second pass: Compute normal variation
     start_time_second_pca = time.time()
