@@ -112,7 +112,7 @@ class GaussMapVisualizer:
         self.vis.register_key_callback(262, self.next_neighborhood)
         self.vis.add_geometry(self.pcd)
         self.apply_lambda2_heatmap()
-        #self._update_neighborhood()
+        self._update_neighborhood()
 
     def get_nearest_neighbor_directions(self, point, kdtree, pcd, plane_directions, radius=2):
         """ Get the directions of the k nearest neighbors to a given point. """
@@ -200,9 +200,9 @@ class GaussMapVisualizer:
         #neighbor_points = np.asarray(self.pcd.points)[neighbor_indices]
 
         # Create a point cloud for the neighbors (red color)
-        self.pcd_colors = np.tile((0.6,0.6,0.6), (self.points.shape[0], 1))
-        self.pcd_colors[idx] = (1, 0, 0)
-        self.pcd.colors = o3d.utility.Vector3dVector(self.pcd_colors)
+        #self.pcd_colors = np.tile((0.6,0.6,0.6), (self.points.shape[0], 1))
+        #self.pcd_colors[idx] = (1, 0, 0)
+        #self.pcd.colors = o3d.utility.Vector3dVector(self.pcd_colors)
 
         if hasattr(self, "normal_lines"):
             self.vis.remove_geometry(self.normal_lines)
