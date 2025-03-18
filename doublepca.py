@@ -8,6 +8,7 @@ import util
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib import cm
+import random
 
 kdtree = None
 radius = 1.3
@@ -29,22 +30,34 @@ def find_plane_directions(indices, points, radius=2):
         eig_vec = eig_vec[:, sorted_idx]
         plane_direction = eig_vec[:, 2]
         normals.append(plane_direction)
-    return normals  # Return normals instead of storing in shared array
+    return normals
 
-def calculate_normal_variation(indices, points, normals, radius=2):
-    eigenvalues = []
+def calculate_normal_standard_deviation(indices, points, normals, radius=2):
+    standard_deviations = []
+
     for idx in indices:
+        # **Step 1: Neighbor Query**
         neighbor_indices = kdtree.query_ball_point(points[idx], radius)
-        neighbor_normals = normals[neighbor_indices]
-        mu = np.mean(neighbor_normals, axis=0)
-        norm = neighbor_normals - mu
-        cov = np.cov(norm.T)
-        eig_val, _ = np.linalg.eigh(cov)
-        sorted_idx = np.argsort(eig_val)[::-1]
-        eig_val = eig_val[sorted_idx]
-        eig_val_norm = eig_val / np.sum(eig_val)
-        eigenvalues.append(eig_val_norm)
-    return eigenvalues  # Return eigenvalues instead of storing in shared array
+
+        # **Step 2: Retrieve Neighbor Normals (Optimized)**
+        neighbor_normals = normals[neighbor_indices]  # Direct indexing (no conversion)
+
+        if len(neighbor_normals) == 0:
+            standard_deviations.append(0)  
+            continue
+
+        # **Step 3: Align Normals**
+        reference_normal = neighbor_normals[0]
+        dot_products = np.dot(neighbor_normals, reference_normal)
+        aligned_normals = neighbor_normals * np.sign(dot_products)[:, np.newaxis]
+
+        # **Step 4: Standard Deviation Calculation**
+        std_dev = np.std(aligned_normals, axis=0)
+        variation_measure = np.sum(std_dev)  
+
+        standard_deviations.append(variation_measure)
+
+    return standard_deviations  
 
 if __name__ == "__main__": 
     dataname = "/home/chris/Code/PointClouds/data/ply/CircularVentilationGrateExtraCleanedFull.ply"
@@ -57,11 +70,6 @@ if __name__ == "__main__":
     chunk_size = len(myarray) // num_chunks
     chunked_indices = [indices[i:i + chunk_size] for i in range(0, len(indices), chunk_size)]
 
-    # # Single-core execution check
-    # results_single = find_plane_directions(chunked_indices[0], myarray)
-    # print("First 5 normals (single-core):")
-    # print(results_single[:5])
-
     # First pass: Compute normals
     start_time_first_pca = time.time()
     with multiprocessing.Pool(processes=4, initializer=init_kdtree, initargs=(kdtree,)) as pool:
@@ -72,37 +80,38 @@ if __name__ == "__main__":
     # Flatten normals to a single array in order
     all_normals = np.vstack(normals_chunks)
 
-    # # Single-core execution check
-    # results_single = calculate_normal_variation(chunked_indices[0], myarray, all_normals)
-    # print("First 5 eigenvalues (single-core):")
-    # print(results_single[:5])
-
-    # Second pass: Compute normal variation
-    start_time_second_pca = time.time()
+    # Second pass: Compute standard deviation-based variation
+    start_time_standard_deviations = time.time()
     with multiprocessing.Pool(processes=4, initializer=init_kdtree, initargs=(kdtree,)) as pool:
-        eigenvalues_chunks = pool.starmap(calculate_normal_variation, [(chunk_indices, myarray, all_normals, radius) for chunk_indices in chunked_indices])
-    second_pca_duration = time.time() - start_time_second_pca
-    print(f"Second PCA time: {second_pca_duration:.2f} seconds")
+        standard_deviation_chunks = pool.starmap(calculate_normal_standard_deviation, [(chunk_indices, myarray, all_normals, radius) for chunk_indices in chunked_indices])
+    standard_deviations_duration = time.time() - start_time_standard_deviations
+    print(f"Second PCA time: {standard_deviations_duration:.2f} seconds")
 
-    # Flatten eigenvalues to a single array in order
-    all_eigenvalues = np.vstack(eigenvalues_chunks)
-    lambda2_values = all_eigenvalues[:, 1]
+    # Flatten standard deviations to maintain order
+    standard_deviations = np.hstack(standard_deviation_chunks)
+
+    # Normalize variation values
+    max_variation = np.max(standard_deviations) if len(standard_deviations) > 0 else 1
+    standard_deviations /= max_variation
 
     # Print a few results to verify
     print("First 5 normals:")
     print(all_normals[:5])
-    print("First 5 eigenvalues:")
-    print(all_eigenvalues[:5])
+    print("First 5 normalized standard deviations:")
+    print(standard_deviations[:5])
 
 class GaussMapVisualizer:
-    def __init__(self, pcd, kdtree, all_normals, lambda2_values, radius):
+    def __init__(self, pcd, kdtree, all_normals, standard_deviations, radius):
         self.pcd = pcd
         self.points = np.asarray(pcd.points)
         self.pcd.paint_uniform_color([0.6, 0.6, 0.6])
         self.kdtree = kdtree
         self.plane_directions = all_normals
         self.radius = radius
-        self.lambda2_values = lambda2_values
+        self.standard_deviations = standard_deviations
+        low, high = np.percentile(self.standard_deviations, [95, 100])
+        self.core_indices = np.where((self.standard_deviations > low) & (self.standard_deviations <= high))[0]
+        print(f"Found {len(self.core_indices)} core points out of {len(self.pcd.points)} total points.")
         self.reference_normal = None
 
         self.current_index = 0
@@ -110,8 +119,9 @@ class GaussMapVisualizer:
         self.vis.create_window("GaussMapVisualizer")
 
         self.vis.register_key_callback(262, self.next_neighborhood)
+        self.vis.register_key_callback(264, self.show_random_core_point)
         self.vis.add_geometry(self.pcd)
-        self.apply_lambda2_heatmap()
+        self.apply_variation_heatmap()
         self._update_neighborhood()
 
     def get_nearest_neighbor_directions(self, point, kdtree, pcd, plane_directions, radius=2):
@@ -120,7 +130,7 @@ class GaussMapVisualizer:
         nearest_points = np.asarray(pcd.points)[idx]
         nearest_directions = np.asarray(plane_directions)[idx]
         return idx, nearest_points, nearest_directions
-
+    
     def create_normal_lines(self, neighbor_points, neighbor_directions, scale=0.2):
         """ Create line segments for the normal directions at each point. """
         line_set = o3d.geometry.LineSet()
@@ -133,7 +143,7 @@ class GaussMapVisualizer:
         line_set.lines = o3d.utility.Vector2iVector(line_indices)
         line_set.colors = o3d.utility.Vector3dVector(np.tile((0, 0, 1), (len(lines), 1)))
         return line_set
-
+    
     def align_normals(self, reference_normal, neighbor_directions):
         aligned_normals = np.array(neighbor_directions)
         
@@ -143,7 +153,7 @@ class GaussMapVisualizer:
                 aligned_normals[i] = -aligned_normals[i]
 
         return aligned_normals
-
+    
     def calculate_normal_variation(self, normals):
         mu = np.mean(normals, axis=0)
         norm = normals - mu
@@ -152,9 +162,9 @@ class GaussMapVisualizer:
         sorted_idx = np.argsort(eig_val)[::-1]
         eig_val = eig_val[sorted_idx]
         eig_val_norm = eig_val / np.sum(eig_val)
-
-        return mu, eig_val_norm
-
+        
+        return mu, eig_val_norm, cov
+    
     def update_gauss_map(self, normals):
         """ Update the Gauss Map visualization with the current neighborhood's normals. """
         normals = np.array(normals)
@@ -184,6 +194,19 @@ class GaussMapVisualizer:
 
         plt.pause(0.1)  # Allow Matplotlib to update
 
+    def show_random_core_point(self, vis):
+        if len(self.core_indices) == 0:
+            print("No core points found.")
+            return
+
+        # Pick a random core point
+        self.current_index = random.choice(self.core_indices)
+
+        # Visualize its neighborhood
+        self._update_neighborhood()
+
+        print(f"Showing core point {self.current_index}.")
+
     def _update_neighborhood(self):
         """ Update visualization for the current neighborhood. """
         # Get the currently selected point
@@ -194,19 +217,12 @@ class GaussMapVisualizer:
         if self.current_index==0:
             self.reference_normal = neighbor_directions[0]
 
-        aligned_directions = self.align_normals(self.reference_normal, neighbor_directions)
-        normal_mean, normal_variation = self.calculate_normal_variation(aligned_directions)
-        # Extract neighbor points
-        #neighbor_points = np.asarray(self.pcd.points)[neighbor_indices]
-
-        # Create a point cloud for the neighbors (red color)
-        #self.pcd_colors = np.tile((0.6,0.6,0.6), (self.points.shape[0], 1))
-        #self.pcd_colors[idx] = (1, 0, 0)
-        #self.pcd.colors = o3d.utility.Vector3dVector(self.pcd_colors)
+        #aligned_directions = self.align_normals(self.reference_normal, neighbor_directions)
+        normal_mean, normal_variation, cov_after = self.calculate_normal_variation(neighbor_directions)
 
         if hasattr(self, "normal_lines"):
             self.vis.remove_geometry(self.normal_lines)
-        self.normal_lines = self.create_normal_lines(neighbor_points, aligned_directions, scale=2)
+        self.normal_lines = self.create_normal_lines(neighbor_points, neighbor_directions, scale=2)
         self.vis.add_geometry(self.normal_lines)
         view_ctl = self.vis.get_view_control()
         lookat = query_point
@@ -221,37 +237,42 @@ class GaussMapVisualizer:
         #self.update_gauss_map(aligned_directions)
 
         self.vis.update_geometry(self.pcd)
-        print(f"Neighborhood {self.current_index}/{len(self.pcd.points)} updated")
-        print(f"Normal mean: {normal_mean}, Normal variation: {normal_variation}")
-        print(15*"-")
+        print(f"Neighborhood {self.current_index}/{len(self.pcd.points)} updated", flush=True)
+        print(f'Aligned normals: {neighbor_directions}', flush=True)
+        print(f"Normal mean: {normal_mean}, Normal variation: {normal_variation}", flush=True)
+        print(f"Std Dev of Normals: {np.std(neighbor_directions, axis=0)}")
+        print(f"Condition Number of Covariance: {np.linalg.cond(cov_after)}")
+        print(15*"-", flush=True)
 
     def next_neighborhood(self, vis):
         """ Move to the next neighborhood when right arrow key is pressed. """
         self.current_index = (self.current_index + 500) % len(self.pcd.points)
         self._update_neighborhood()
+    
+    def normalize_variation_colors(self, variation_values):
+        """ Normalize variation values to a colormap range. """
+        min_val, max_val = np.percentile(variation_values, [2, 98])  # Robust normalization
+        norm_variation = (variation_values - min_val) / (max_val - min_val + 1e-6)  # Normalize to [0,1]
 
-    def normalize_lambda2_colors(self, lambda2_values):
-        """ Normalize λ2 values to a colormap range. """
-        min_val, max_val = np.percentile(lambda2_values, [2, 98])
-        norm_lambda2 = (lambda2_values - min_val) / (max_val - min_val + 1e-6)  # Normalize to [0,1]
-
-        # Use a colormap (e.g., viridis)
-        colors = cm.viridis(norm_lambda2)[:, :3]  # Extract RGB colors
+        # Use a colormap (e.g., viridis) to visualize variation
+        colors = cm.viridis(norm_variation)[:, :3]  # Extract RGB colors
 
         return colors
 
-    def apply_lambda2_heatmap(self):
-        colors = self.normalize_lambda2_colors(self.lambda2_values)
+    def apply_variation_heatmap(self):
+        """ Apply standard deviation-based variation as a heatmap to the point cloud. """
+        colors = self.normalize_variation_colors(self.standard_deviations)
 
         self.pcd.colors = o3d.utility.Vector3dVector(colors)  # Assign colors to points
 
-        #self.vis.update_geometry(self.pcd)
-        print("Heatmap applied!")
+        # self.vis.update_geometry(self.pcd)  # Uncomment if using an Open3D visualizer
+        print("Standard deviation heatmap applied!")
+
 
     def run(self):
-        print("Point picking mode enabled! Use [Shift + Left Click] to pick points.")
         self.vis.run()  # Start the visualization loop (blocks until closed)
         self.vis.destroy_window()
 
-viewer = GaussMapVisualizer(pcd, kdtree, all_normals, lambda2_values, radius)
+viewer = GaussMapVisualizer(pcd, kdtree, all_normals, standard_deviations, radius)
 viewer.run()
+

@@ -9,10 +9,9 @@ pcd = o3d.io.read_point_cloud(point_cloud_location)
 
 pcd = util.preProcessCloud(pcd)
 
-expected_number_of_planes = 7
 pt_to_plane_dist = 0.4
 
-segment_models, segments, main_surface_idx = util.multiOrderRansac(pcd, expected_number_of_planes, pt_to_plane_dist)
+segment_models, segments, main_surface_idx = util.multiOrderRansac(pcd, pt_to_plane_dist)
 angles_rad = util.findAnglesBetweenPlanes(segment_models, main_surface_idx)
 intersection_lines = util.findIntersectionLines(segment_models, main_surface_idx)
 anchor_points = util.findAnchorPoints(segment_models, segments, intersection_lines, main_surface_idx)
@@ -25,5 +24,6 @@ radius = 1.5
 bend_length_calculator = BendLengthCalculator(pcd, anchor_points, intersection_lines, eigen_threshold, angle_threshold, aggregation_range, sample_dist, radius)
 bend_edges = bend_length_calculator.compute_bend_lengths()
 
-util.draw_bend_edges(pcd, bend_edges)
+util.drawBendEdges(pcd, bend_edges)
 
+print(f'Bend edges: {bend_edges}')
