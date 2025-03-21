@@ -36,7 +36,7 @@ class BendLengthCalculator:
     def compute_bend_lengths(self):
         bend_edges_dict = {}
         for i in range(len(self.intersection_lines)):
-            print(f'Computing bend length for intersection {i+1}')
+            #print(f'Computing bend length for intersection {i+1}')
             it = 0
             forward = True
             eigen_value_dict = {}
@@ -115,5 +115,5 @@ class BendLengthCalculator:
                     
                 it += 1
 
-        print(bend_edges_dict)
+        #print(bend_edges_dict)
         return bend_edges_dict
