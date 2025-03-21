@@ -266,8 +266,11 @@ def initKdtree(tree):
     global kdtree
     kdtree = tree
 
-def findPlaneDirections(indices, points, radius=2):
+def calculateNormals(indices, points, radius=2):
     """Estimate plane normals for given indices using PCA."""
+    global kdtree
+    if kdtree is None:  # Ensure k-d tree is initialized
+        kdtree = cKDTree(points)
     normals = []
     for idx in indices:
         neighbor_indices = kdtree.query_ball_point(points[idx], radius)
@@ -286,6 +289,34 @@ def findPlaneDirections(indices, points, radius=2):
         normals.append(plane_direction)
     return np.array(normals)
 
+def alignNormalsGlobally(normals, points, radius=2):
+    """Ensure all normals are consistently oriented across the entire point cloud."""
+    kdtree = cKDTree(points)
+    visited = np.zeros(len(normals), dtype=bool)
+
+    queue = [0]  # Start with the first point as the reference
+    visited[0] = True
+
+    while queue:
+        idx = queue.pop(0)
+        reference_normal = normals[idx]
+
+        # Find neighboring points
+        neighbor_indices = kdtree.query_ball_point(points[idx], radius)
+
+        for neighbor_idx in neighbor_indices:
+            if visited[neighbor_idx]:
+                continue  # Skip already visited neighbors
+
+            # Flip neighbor normal if it points in the opposite direction
+            if np.dot(normals[neighbor_idx], reference_normal) < 0:
+                normals[neighbor_idx] *= -1
+
+            visited[neighbor_idx] = True
+            queue.append(neighbor_idx)  # Add to queue for further checking
+
+    return normals
+
 def calculateNormalStandardDeviation(indices, points, normals, radius=2):
     """Compute standard deviation of normal directions for given indices."""
     standard_deviations = []
@@ -297,11 +328,11 @@ def calculateNormalStandardDeviation(indices, points, normals, radius=2):
             continue
 
         neighbor_normals = normals[neighbor_indices]
-        reference_normal = neighbor_normals[0]
-        dot_products = np.dot(neighbor_normals, reference_normal)
-        aligned_normals = neighbor_normals * np.sign(dot_products)[:, np.newaxis]
+        #reference_normal = neighbor_normals[0]
+        #dot_products = np.dot(neighbor_normals, reference_normal)
+        #aligned_normals = neighbor_normals * np.sign(dot_products)[:, np.newaxis]
 
-        std_dev = np.std(aligned_normals, axis=0)
+        std_dev = np.std(neighbor_normals, axis=0)
         variation_measure = np.sum(std_dev)
         standard_deviations.append(variation_measure)
 
@@ -331,13 +362,13 @@ def calculatePointwiseNormalVariance(pcd, radius=2, num_chunks=16, num_workers=4
     # First pass: Compute normals
     start_time_first_pca = time.time()
     with multiprocessing.Pool(processes=num_workers, initializer=initKdtree, initargs=(kdtree,)) as pool:
-        normals_chunks = pool.starmap(findPlaneDirections, [(chunk, myarray, radius) for chunk in chunked_indices])
+        normals_chunks = pool.starmap(calculateNormals, [(chunk, myarray, radius) for chunk in chunked_indices])
     first_pca_duration = time.time() - start_time_first_pca
     if verbose:
         print(f"PCA calculation time: {first_pca_duration:.2f} seconds")
 
     all_normals = np.vstack(normals_chunks)  # Flatten normal array
-
+    all_normals = alignNormalsGlobally(all_normals, myarray, radius=2)
     # Second pass: Compute standard deviation-based variation
     if verbose:
         print("Calculating pointwise standard deviation. This may take a while... (approx. 30 sec per 1M points)")
