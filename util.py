@@ -55,9 +55,11 @@ def multiOrderRansac(pcd, pt_to_plane_dist, visualize=False, verbose=False):
         print(f'Found {max_plane_idx} planes')
     segment_models = {}
     segments = {}
+    segment_indices = {}
     main_surface_idx = 0
     largest_surface_points = 0
     rest = pcd
+    rest_indices = np.arange(len(pcd.points))
     
     if verbose:
         print('Running multi-order RANSAC')
@@ -67,17 +69,20 @@ def multiOrderRansac(pcd, pt_to_plane_dist, visualize=False, verbose=False):
         colors = plt.get_cmap("tab20")(i)
         segment_models[i], inliers = rest.segment_plane(distance_threshold=pt_to_plane_dist,ransac_n=3,num_iterations=50000)
         segments[i] = rest.select_by_index(inliers)
+        global_inliers = rest_indices[inliers]
+        segment_indices[i] = global_inliers
         if len(segments[i].points) > largest_surface_points:
             largest_surface_points = len(segments[i].points) 
             main_surface_idx = i
         segments[i].paint_uniform_color(list(colors[:3]))
         rest = rest.select_by_index(inliers, invert=True)
+        rest_indices = np.delete(rest_indices, inliers)
         #print('Done')
 
     if visualize:
         o3d.visualization.draw_geometries([segments[i] for i in range(max_plane_idx)],zoom=zoom,front=front,lookat=lookat,up=up)
 
-    return segment_models, segments, main_surface_idx
+    return segment_models, segments, segment_indices, main_surface_idx
 
 
 def planarPatches(pcd):
@@ -435,12 +440,12 @@ def growRegionsAroundIntersections(anchor_points_dict, core_indices, pointwise_v
         variance_percentile (float): Minimum variance percentile for expansion.
 
     Returns:
-        clusters (list of sets): List of clusters, each containing point indices.
+        clusters (dictionary of sets): Dict of clusters, each containing point indices.
     """
     kdtree = cKDTree(points)  # KD-tree for fast neighbor search
     #core_kdtree = cKDTree(points[core_indices])  # KD-tree for core points only
     variance_threshold = np.percentile(pointwise_variance, variance_percentile)  # Compute variance cutoff
-    clusters = []  # Store clusters
+    clusters = {}  # Store clusters
     
     for anchor_idx, anchor_point in anchor_points_dict.items():
         anchor_point = np.array(anchor_point)
@@ -477,7 +482,7 @@ def growRegionsAroundIntersections(anchor_points_dict, core_indices, pointwise_v
                     cluster.add(neighbor)
                     to_expand.append(neighbor)  # Expand further
 
-        clusters.append(cluster)  # Save completed cluster
+        clusters[anchor_idx] = cluster  # Save completed cluster
 
     return clusters
 
