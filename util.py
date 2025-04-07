@@ -486,4 +486,28 @@ def growRegionsAroundIntersections(anchor_points_dict, core_indices, pointwise_v
 
     return clusters
 
+def compute_normal_derivative_pca(normals):
+    """Compute dominant direction of normal variation using PCA."""
+    cov = np.cov(normals.T)
+    eig_vals, eig_vecs = np.linalg.eigh(cov)
+    return eig_vecs[:, np.argmax(eig_vals)]  # Largest eigenvector = main change direction
+    
+def calculate_normal_derivatives(normals, points, radius, verbose=False):
+    kdtree = cKDTree(points)
+    derivatives = []
+    for i, point in enumerate(points):
+        # Get neighborhood
+        if verbose:
+            print(f"Computing normal derivative {i}/{len(points)}")
+        neighbor_indices = kdtree.query_ball_point(point, radius)
 
+        if len(neighbor_indices) < 3:
+            continue  # Skip small neighborhoods
+
+        neighbor_normals = normals[neighbor_indices]
+
+        # Compute normal derivative
+        normal_gradient = compute_normal_derivative_pca(neighbor_normals)  # or self.compute_normal_derivative
+
+        derivatives.append(normal_gradient)
+    return np.array(derivatives)
