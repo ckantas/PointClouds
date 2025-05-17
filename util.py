@@ -126,6 +126,43 @@ def findIntersectionLines(segment_models, main_surface_idx):
 
     return intersection_lines
 
+def findIntersectionLinesLeastSquares(segment_models, main_surface_idx):
+    """
+    Computes intersection lines between the main plane and other segment planes.
+    Each line is represented by (direction_vector, point_on_line).
+    """
+    intersection_lines = {}
+
+    main_plane = segment_models[main_surface_idx]
+    n1 = main_plane[:3]
+    d1 = -main_plane[3]
+
+    for i, plane in segment_models.items():
+        if i == main_surface_idx:
+            continue
+
+        n2 = plane[:3]
+        d2 = -plane[3]
+
+        # Direction of intersection = cross product of normals
+        direction = np.cross(n1, n2)
+        if np.linalg.norm(direction) < 1e-6:
+            continue  # Planes are parallel or identical
+
+        # Build coefficient matrix and solve for point on line
+        A = np.array([n1, n2, direction])
+        b = np.array([d1, d2, 0])
+
+        # Use least-squares to solve A x = b (more stable than direct solve)
+        try:
+            point_on_line = np.linalg.lstsq(A, b, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            continue  # Skip if system is badly conditioned
+
+        intersection_lines[i] = [direction, point_on_line]
+
+    return intersection_lines
+
 def findAnchorPoints(segment_models, segments, intersection_lines, main_surface_idx, visualize=False):
     anchor_points = {}
     max_plane_idx = len(segment_models)
@@ -343,7 +380,7 @@ def calculateNormalStandardDeviation(indices, points, normals, radius=2):
 
     return np.array(standard_deviations)
 
-def calculatePointwiseNormalVariance(pcd, radius=2, num_chunks=16, num_workers=4, verbose=False):
+def calculatePointwiseNormalVariance(pcd, pca_radius=2, variance_radius = 2, num_chunks=16, num_workers=4, verbose=False):
     """
     Compute normal variation for a given point cloud.
     
@@ -367,7 +404,7 @@ def calculatePointwiseNormalVariance(pcd, radius=2, num_chunks=16, num_workers=4
     # First pass: Compute normals
     start_time_first_pca = time.time()
     with multiprocessing.Pool(processes=num_workers, initializer=initKdtree, initargs=(kdtree,)) as pool:
-        normals_chunks = pool.starmap(calculateNormals, [(chunk, myarray, radius) for chunk in chunked_indices])
+        normals_chunks = pool.starmap(calculateNormals, [(chunk, myarray, pca_radius) for chunk in chunked_indices])
     first_pca_duration = time.time() - start_time_first_pca
     if verbose:
         print(f"PCA calculation time: {first_pca_duration:.2f} seconds")
@@ -379,7 +416,7 @@ def calculatePointwiseNormalVariance(pcd, radius=2, num_chunks=16, num_workers=4
         print("Calculating pointwise standard deviation. This may take a while... (approx. 30 sec per 1M points)")
     start_time_standard_deviations = time.time()
     with multiprocessing.Pool(processes=num_workers, initializer=initKdtree, initargs=(kdtree,)) as pool:
-        standard_deviation_chunks = pool.starmap(calculateNormalStandardDeviation, [(chunk, myarray, all_normals, radius) for chunk in chunked_indices])
+        standard_deviation_chunks = pool.starmap(calculateNormalStandardDeviation, [(chunk, myarray, all_normals, variance_radius) for chunk in chunked_indices])
     standard_deviations_duration = time.time() - start_time_standard_deviations
     if verbose:
         print(f"Standard deviation calculation: {standard_deviations_duration:.2f} seconds")
@@ -391,6 +428,69 @@ def calculatePointwiseNormalVariance(pcd, radius=2, num_chunks=16, num_workers=4
     normalized_variation = standard_deviations / max_variation
 
     return all_normals, normalized_variation
+
+
+def calculatePointwiseNormalVariance_open3d(
+    pcd, 
+    pca_radius=1.7, 
+    variance_radius=0.8, 
+    num_chunks=16, 
+    num_workers=4, 
+    verbose=False
+):
+    """
+    Use Open3D to estimate normals, then compute standard deviation-based variation using multiprocessing.
+
+    Args:
+        pcd (open3d.geometry.PointCloud): Input point cloud.
+        pca_radius (float): Radius for Open3D normal estimation.
+        variance_radius (float): Radius for standard deviation computation.
+        num_chunks (int): Number of chunks for parallel processing.
+        num_workers (int): Number of worker processes.
+        verbose (bool): Print timing information.
+
+    Returns:
+        tuple: (Nx3 normals, normalized variation per point)
+    """
+    points = np.asarray(pcd.points)
+    indices = np.arange(len(points))
+    chunk_size = len(points) // num_chunks
+    chunked_indices = [indices[i:i + chunk_size] for i in range(0, len(indices), chunk_size)]
+    global kdtree
+    kdtree = cKDTree(points)
+
+    if verbose:
+        print(f"Estimating normals using Open3D with radius={pca_radius}...")
+
+    start_time_normals = time.time()
+    pcd.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=pca_radius, max_nn=50)
+    )
+    pcd.orient_normals_consistent_tangent_plane(k=20)
+    all_normals = np.asarray(pcd.normals).copy()
+    normals_duration = time.time() - start_time_normals
+
+    if verbose:
+        print(f"Normal estimation (Open3D): {normals_duration:.2f} seconds")
+        print("Calculating pointwise standard deviation with multiprocessing...")
+
+    start_time_std = time.time()
+    with multiprocessing.Pool(processes=num_workers, initializer=initKdtree, initargs=(kdtree,)) as pool:
+        std_chunks = pool.starmap(
+            calculateNormalStandardDeviation, 
+            [(chunk, points, all_normals, variance_radius) for chunk in chunked_indices]
+        )
+    std_duration = time.time() - start_time_std
+
+    if verbose:
+        print(f"Standard deviation calculation: {std_duration:.2f} seconds")
+
+    standard_deviations = np.hstack(std_chunks)
+    max_variation = np.max(standard_deviations) if len(standard_deviations) > 0 else 1
+    normalized_variation = standard_deviations / max_variation
+
+    return all_normals, normalized_variation
+
 
 def getCorePoints(pointwise_variance, percentile=90):
     threshold = np.percentile(pointwise_variance, percentile)  # Compute 90th percentile
