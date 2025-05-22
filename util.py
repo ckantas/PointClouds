@@ -13,7 +13,7 @@ lookat = [-6.3976792217838847, 20.927374714553928, 18.659758576873813]
 up =  [-0.056918726368614558, -0.77607794684805009, -0.62806311705487861]
 zoom = 0.69999999999999996
 
-def preProcessCloud(pcd, voxel_size=0.05, visualize=False, verbose=False):
+def preProcessSimple(pcd, voxel_size=0.05, visualize=False, verbose=False):
     #Outlier removal
     nn = 16
     std_multiplier = 10
