@@ -1,7 +1,7 @@
 import open3d as o3d
 import numpy as np
 
-def estimate_point_density(pcd, radius_mm=1.0, min_neighbors=30):
+def estimate_point_density(pcd, radius_mm=1.0, min_neighbors=30, verbose=False):
     kdtree = o3d.geometry.KDTreeFlann(pcd)
     counts = []
     total_checked = 0
@@ -14,8 +14,9 @@ def estimate_point_density(pcd, radius_mm=1.0, min_neighbors=30):
 
     if counts:
         avg_density = np.mean(counts)
-        print(f"[INFO] Average density (excluding sparse points): {avg_density:.2f} points per {radius_mm}mm sphere")
-        print(f"[INFO] Used {len(counts)} / {total_checked} sampled points (≥ {min_neighbors} neighbors)")
+        if verbose:
+            print(f"[INFO] Average density (excluding sparse points): {avg_density:.2f} points per {radius_mm}mm sphere")
+            print(f"[INFO] Used {len(counts)} / {total_checked} sampled points (≥ {min_neighbors} neighbors)")
     else:
         avg_density = 0
         print(f"[WARN] No sampled points had ≥ {min_neighbors} neighbors.")
@@ -61,7 +62,7 @@ def preprocess_for_fpfh(pcd, voxel_size):
     )
     return pcd_down, fpfh
 
-def run_global_icp_alignment(scan_pcd, cad_pcd, voxel_size=1.0):
+def run_global_icp_alignment(scan_pcd, cad_pcd, voxel_size=1.0, verbose=False):
     """Run global RANSAC + ICP refinement."""
     scan_down, scan_fpfh = preprocess_for_fpfh(scan_pcd, voxel_size)
     cad_down, cad_fpfh = preprocess_for_fpfh(cad_pcd, voxel_size)
@@ -79,8 +80,9 @@ def run_global_icp_alignment(scan_pcd, cad_pcd, voxel_size=1.0):
         criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(4000000, 500)
     )
 
-    print("[INFO] Global RANSAC transformation:")
-    print(result_ransac.transformation)
+    if verbose:
+        print("[INFO] Global RANSAC transformation:")
+        print(result_ransac.transformation)
 
     scan_pcd.estimate_normals()
     cad_pcd.estimate_normals()
@@ -90,9 +92,10 @@ def run_global_icp_alignment(scan_pcd, cad_pcd, voxel_size=1.0):
         o3d.pipelines.registration.TransformationEstimationPointToPlane()
     )
 
-    print("[INFO] ICP refinement transformation:")
-    print(result_icp.transformation)
-    print(f"[INFO] ICP Fitness: {result_icp.fitness:.4f}, RMSE: {result_icp.inlier_rmse:.4f}")
+    if verbose:
+        print("[INFO] ICP refinement transformation:")
+        print(result_icp.transformation)
+        print(f"[INFO] ICP Fitness: {result_icp.fitness:.4f}, RMSE: {result_icp.inlier_rmse:.4f}")
 
     return result_icp.transformation
 
@@ -124,10 +127,10 @@ def dbscan_cleanup(pcd, eps=0.8, min_points=10):
     final = pcd.select_by_index(np.where(largest_cluster)[0])
     return final
 
-def preProcessData(scan_pcd, cad_mesh, x_rotation, z_rotation):
-    avg_density = estimate_point_density(scan_pcd, radius_mm=1.0)
+def preProcessData(scan_pcd, cad_mesh, x_rotation, z_rotation, verbose=False):
+    avg_density = estimate_point_density(scan_pcd, radius_mm=1.0, verbose=verbose)
     cad_pcd = raycast_topdown(cad_mesh, x_rotation=x_rotation, z_rotation=z_rotation, spacing=0.1)
-    T_final = run_global_icp_alignment(scan_pcd, cad_pcd, voxel_size=1.0)
+    T_final = run_global_icp_alignment(scan_pcd, cad_pcd, voxel_size=1.0, verbose=verbose)
     cad_pcd.transform(T_final)
     cad_mesh.transform(T_final)
     cropped = crop_scan_near_mesh(scan_pcd, cad_mesh, max_distance=1.5)
