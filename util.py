@@ -84,6 +84,96 @@ def multiOrderRansac(pcd, pt_to_plane_dist, visualize=False, verbose=False):
 
     return segment_models, segments, segment_indices, main_surface_idx
 
+def multiOrderRansacAdvanced(pcd, pt_to_plane_dist, visualize=False, verbose=False):
+    if verbose:
+        print('Identifying main plane')
+    
+    plane_model, inliers = pcd.segment_plane(distance_threshold=pt_to_plane_dist, ransac_n=3, num_iterations=1000)
+    main_plane = pcd.select_by_index(inliers)
+    remaining = pcd.select_by_index(inliers, invert=True)
+    remaining_indices = np.setdiff1d(np.arange(len(pcd.points)), inliers)
+
+    if verbose:
+        print('Clustering remaining points')
+    labels = np.array(remaining.cluster_dbscan(eps=0.8, min_points=50))
+
+    num_clusters = labels.max() + 1
+    if verbose:
+        print(f"Found {num_clusters} disconnected clusters")
+
+    # Remove noise (label == -1)
+    clean_indices = np.where(labels >= 0)[0]
+    remaining_clean = remaining.select_by_index(clean_indices)
+    clean_labels = labels[clean_indices]
+    num_clean_clusters = clean_labels.max() + 1
+    
+    def angle_between_normals(n1, n2):
+        cos_angle = np.clip(np.dot(n1, n2), -1.0, 1.0)
+        return np.arccos(cos_angle) * 180.0 / np.pi
+
+    # Get normal of main plane
+    main_plane_normal = np.array(plane_model[:3])
+    main_plane_normal = main_plane_normal / np.linalg.norm(main_plane_normal)
+
+    angle_threshold = 15  # degrees
+
+    if verbose:
+        print('Fitting planes to remaining clusters and filtering')
+
+    segment_models = {}
+    segments = {}
+    segment_indices = {}
+    filtered_ids = []
+    main_surface_idx = 0
+    # Paint and add main surface
+    main_plane.paint_uniform_color([0.3, 0.3, 1.0])
+    segments[main_surface_idx] = main_plane
+    segment_models[main_surface_idx] = plane_model
+    segment_indices[main_surface_idx] = np.array(inliers)
+    # Colormap
+    cmap = plt.get_cmap("tab20")
+    color_idx = 0
+    index = 0
+
+    for i in range(num_clean_clusters):
+        indices = np.where(clean_labels == i)[0]
+        cluster = remaining_clean.select_by_index(indices)
+
+        if len(cluster.points) < 50:
+            continue
+
+        try:
+            cluster_plane, inliers = cluster.segment_plane(distance_threshold=pt_to_plane_dist, ransac_n=3, num_iterations=1000)
+        except:
+            continue
+
+        cluster_normal = np.array(cluster_plane[:3])
+        cluster_normal /= np.linalg.norm(cluster_normal)
+        angle = angle_between_normals(main_plane_normal, cluster_normal)
+
+        if angle > angle_threshold:
+            cluster_id = index + 1
+            color = cmap(color_idx / 20)[:3]
+            cluster.paint_uniform_color(color)
+            segment_models[cluster_id] = cluster_plane
+            segments[cluster_id] = cluster
+            # Map local cluster inliers to global indices in pcd
+            inliers_global = remaining_indices[clean_indices[indices[inliers]]]  # indices in full pcd
+
+            segment_indices[cluster_id] = inliers_global
+            filtered_ids.append(cluster_id)
+            
+            index += 1
+            color_idx += 1  # advance for next unique color
+        else:
+            # Optional: keep red color for discarded ones, or skip saving them
+            pass
+
+    if visualize:
+        o3d.visualization.draw_geometries([segments[i] for i in segments])
+
+    return segment_models, segments, segment_indices, main_surface_idx
+
 
 def planarPatches(pcd):
     oboxes = pcd.detect_planar_patches(normal_variance_threshold_deg=20,coplanarity_deg=75,
@@ -492,7 +582,7 @@ def calculatePointwiseNormalVariance_open3d(
     return all_normals, normalized_variation
 
 
-def getCorePoints(pointwise_variance, percentile=90):
+def getCorePoints(pointwise_variance, percentile=60):
     threshold = np.percentile(pointwise_variance, percentile)  # Compute 90th percentile
     core_indices = np.where(pointwise_variance >= threshold)[0]  # Indices of core points
     
@@ -525,7 +615,7 @@ def is_within_bend_limits(point, bend_edge):
     return 0 <= projection_scalar <= bend_length
 
 
-def growRegionsAroundIntersections(anchor_points_dict, core_indices, pointwise_variance, points, bend_edges, search_radius=1.5, min_neighbors=20, variance_percentile=90):
+def growRegionsAroundIntersections(anchor_points_dict, core_indices, pointwise_variance, points, bend_edges, search_radius=1.5, min_neighbors=20, variance_percentile=50):
     """
     Grows a region/cluster around anchor points, enforcing bend constraints.
 
