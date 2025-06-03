@@ -23,13 +23,12 @@ def estimate_point_density(pcd, radius_mm=1.0, min_neighbors=30, verbose=False):
 
     return avg_density
 
-def raycast_topdown(mesh, x_rotation, z_rotation, spacing=0.1):
-
-    x_rotation = 110
-    z_rotation = 90
+def raycast_topdown(mesh, x_rotation, y_rotation, z_rotation, spacing=0.1):
     Rx = mesh.get_rotation_matrix_from_axis_angle([np.deg2rad(x_rotation), 0, 0])
+    Ry = mesh.get_rotation_matrix_from_axis_angle([0, np.deg2rad(y_rotation), 0])
     Rz = mesh.get_rotation_matrix_from_axis_angle([0, 0, np.deg2rad(z_rotation)])
     mesh.rotate(Rx, center=mesh.get_center())
+    mesh.rotate(Ry, center=mesh.get_center())
     mesh.rotate(Rz, center=mesh.get_center())
 
     scene = o3d.t.geometry.RaycastingScene()
@@ -109,8 +108,9 @@ def crop_scan_near_mesh(scan_pcd, cad_mesh, max_distance=2.5):
     pcd_tensor = o3d.core.Tensor(scan_pts, dtype=o3d.core.Dtype.Float32)
 
     signed_dists = scene.compute_signed_distance(pcd_tensor)
-    abs_dists = np.abs(signed_dists.numpy())
-    mask = abs_dists < max_distance
+    #abs_dists = np.abs(signed_dists.numpy())
+    sd = signed_dists.numpy()
+    mask = (sd < 0) | ((sd >= 0) & (sd < max_distance))
 
     cropped = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(scan_pts[mask]))
     return cropped
@@ -127,15 +127,15 @@ def dbscan_cleanup(pcd, eps=0.8, min_points=10):
     final = pcd.select_by_index(np.where(largest_cluster)[0])
     return final
 
-def preProcessData(scan_pcd, cad_mesh, x_rotation, z_rotation, verbose=False):
+def preProcessData(scan_pcd, cad_mesh, x_rotation, y_rotation, z_rotation, verbose=False):
     avg_density = estimate_point_density(scan_pcd, radius_mm=1.0, verbose=verbose)
-    cad_pcd = raycast_topdown(cad_mesh, x_rotation=x_rotation, z_rotation=z_rotation, spacing=0.1)
+    cad_pcd = raycast_topdown(cad_mesh, x_rotation=x_rotation, y_rotation=y_rotation, z_rotation=z_rotation, spacing=0.1)
     T_final = run_global_icp_alignment(scan_pcd, cad_pcd, voxel_size=1.0, verbose=verbose)
     cad_pcd.transform(T_final)
     cad_mesh.transform(T_final)
     cropped = crop_scan_near_mesh(scan_pcd, cad_mesh, max_distance=1.5)
     cleaned = remove_outliers(cropped, nb_neighbors=20, std_ratio=4.0, radius=2.5, min_points=8)
-    preprocessed_pcd = dbscan_cleanup(cleaned, eps=0.8, min_points=10)
+    preprocessed_pcd = dbscan_cleanup(cleaned, eps=1, min_points=15)
     nn_distance = np.mean([preprocessed_pcd.compute_nearest_neighbor_distance()])
     radius_normals = nn_distance*4
     preprocessed_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normals, max_nn=16), fast_normal_computation=True)

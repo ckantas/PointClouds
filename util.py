@@ -139,7 +139,7 @@ def multiOrderRansacAdvanced(pcd, pt_to_plane_dist, visualize=False, verbose=Fal
         indices = np.where(clean_labels == i)[0]
         cluster = remaining_clean.select_by_index(indices)
 
-        if len(cluster.points) < 50:
+        if len(cluster.points) < 800:
             continue
 
         try:
@@ -174,6 +174,116 @@ def multiOrderRansacAdvanced(pcd, pt_to_plane_dist, visualize=False, verbose=Fal
 
     return segment_models, segments, segment_indices, main_surface_idx
 
+def project_point_onto_plane(point, plane_model):
+    # plane_model = [a, b, c, d]
+    normal = np.array(plane_model[:3])
+    d = plane_model[3]
+    normal = normal / np.linalg.norm(normal)
+    distance = np.dot(normal, point) + d
+    return point - distance * normal
+
+def project_point_onto_line(point, line_point, line_dir):
+    """
+    Projects a point onto a 3D line defined by a point and direction.
+    """
+    line_dir = line_dir / np.linalg.norm(line_dir)
+    vec_to_point = point - line_point
+    projection_length = np.dot(vec_to_point, line_dir)
+    projected = line_point + projection_length * line_dir
+    return projected
+
+def is_wrap_around_bend(center_point, angle, main_plane_model, intersection_line, pcd_tree, search_radius=0.5, offset_distance=1.5):
+    """
+    Determines if a bend wraps around the main surface using two strategies:
+    - For near-90° bends: project center to main plane and offset perpendicularly to crease
+    - Otherwise: use direct projection to main plane
+    """
+    n_main = np.array(main_plane_model[:3])
+    n_main /= np.linalg.norm(n_main)
+
+    if 75 < angle < 105:
+        #print(f"Near-90° bend detected with angle {angle:.2f}°")
+
+        # Project center onto main surface
+        projected = project_point_onto_plane(center_point, main_plane_model)
+
+        # Project that onto the intersection line
+        line_dir = np.array(intersection_line[0])
+        line_point = np.array(intersection_line[1])
+        line_proj = project_point_onto_line(projected, line_point, line_dir)
+
+        # Compute offset direction away from the line
+        offset_dir = projected - line_proj
+        offset_dir /= np.linalg.norm(offset_dir)
+
+        # Move away from crease
+        probe_point = projected + offset_distance * offset_dir
+    else:
+        # Use direct projection
+        probe_point = project_point_onto_plane(center_point, main_plane_model)
+
+    [k, _, _] = pcd_tree.search_radius_vector_3d(probe_point, search_radius)
+    #if 75 < angle < 105:
+        #print(k, "points found within search radius for near-90° bend")
+    return k > 0
+
+def flip_normals_by_bend_orientation(segment_models, intersection_lines, segments, main_surface_idx, pcd_tree, search_radius=0.8, verbose=False):
+    """
+    Uses geometry and context to determine correct normal orientation
+    for each inclined plane based on whether it wraps around the main surface.
+    """
+    aligned_models = {}
+    main_normal = np.array(segment_models[main_surface_idx][:3])
+    main_normal /= np.linalg.norm(main_normal)
+    main_plane_model = segment_models[main_surface_idx]
+
+    for idx, model in segment_models.items():
+        if idx == main_surface_idx:
+            aligned_models[idx] = model
+            continue
+
+        intersection_line = intersection_lines.get(idx)
+        if intersection_line is None:
+            aligned_models[idx] = model
+            continue
+
+        center = np.array(segments[idx].get_center())
+        n_inclined = np.array(model[:3])
+        n_inclined /= np.linalg.norm(n_inclined)
+
+        dot = np.dot(main_normal, n_inclined)
+        angle = np.degrees(np.arccos(np.clip(dot, -1.0, 1.0)))
+
+        if verbose:
+            print(f"[Segment {idx}] dot = {dot:.3f} → angle = {angle:.2f}°")
+
+        is_wrap = is_wrap_around_bend(
+            center_point=center,
+            angle=angle,
+            main_plane_model=main_plane_model,
+            intersection_line=intersection_line,
+            pcd_tree=pcd_tree,
+            search_radius=search_radius,
+            offset_distance=1.5
+        )
+
+        if verbose:
+            if 75 < angle < 105:
+                print(f"→ near-90° bend → wrap = {is_wrap}")
+
+        # Final flip logic — minimal and clear
+        should_flip = (is_wrap and angle < 90) or (not is_wrap and angle > 90)
+
+        if should_flip:
+            aligned_models[idx] = -1 * model
+            if verbose:
+                print("↪️  Flipped")
+        else:
+            aligned_models[idx] = model
+            if verbose:
+                print("✅ Kept as-is")
+
+    return aligned_models
 
 def planarPatches(pcd):
     oboxes = pcd.detect_planar_patches(normal_variance_threshold_deg=20,coplanarity_deg=75,
@@ -368,6 +478,32 @@ def generateAnchorLines(anchor_points, intersection_lines, segment_models, segme
 
     return lines, direction_vectors
 
+def drawBendEdgesWithCylinders(pcd, bend_edges, radius=0.3, color=[1, 0, 0]):
+    geometries = [pcd.paint_uniform_color([0.6, 0.6, 0.6]) or pcd]
+    for start, end in bend_edges.values():
+        cylinder = create_cylinder_between_points(np.array(start), np.array(end), radius, color)
+        geometries.append(cylinder)
+    o3d.visualization.draw_geometries(geometries)
+
+def create_cylinder_between_points(p1, p2, radius=0.3, color=[1, 0, 0]):
+    height = np.linalg.norm(p2 - p1)
+    direction = (p2 - p1) / height
+    cylinder = o3d.geometry.TriangleMesh.create_cylinder(radius, height)
+    cylinder.paint_uniform_color(color)
+
+    # Align z-axis to direction
+    z = np.array([0, 0, 1])
+    axis = np.cross(z, direction)
+    angle = np.arccos(np.clip(np.dot(z, direction), -1.0, 1.0))
+    if np.linalg.norm(axis) > 1e-6:
+        R = o3d.geometry.get_rotation_matrix_from_axis_angle(axis / np.linalg.norm(axis) * angle)
+        cylinder.rotate(R, center=(0, 0, 0))
+
+    # Move to midpoint
+    midpoint = (p1 + p2) / 2
+    cylinder.translate(midpoint)
+    return cylinder
+
 def drawBendEdges(pcd, bend_edges):
     # Create line set
     line_points = []  # Stores points for line visualization
@@ -392,6 +528,35 @@ def drawBendEdges(pcd, bend_edges):
     o3d.visualization.draw_geometries([pcd, line_set])
 
 kdtree = None  # Global k-d tree
+
+def create_normal_arrow(center, normal, length=6.0, color=[1, 0, 0]):
+    start = center
+    end = center + length * normal
+    points = [start, end]
+    lines = [[0, 1]]
+    colors = [color]
+
+    arrow = o3d.geometry.LineSet()
+    arrow.points = o3d.utility.Vector3dVector(points)
+    arrow.lines = o3d.utility.Vector2iVector(lines)
+    arrow.colors = o3d.utility.Vector3dVector(colors)
+    return arrow
+
+def draw_normal_arrows(segment_models, segments, main_surface_idx):
+    # Create arrows for each plane
+    arrows = []
+    for idx, model in segment_models.items():
+        normal = np.array(model[:3])
+        normal /= np.linalg.norm(normal)
+        center = np.array(segments[idx].get_center())
+
+        color = [0, 0, 1] if idx == main_surface_idx else [0, 1, 0]
+        arrow = create_normal_arrow(center, normal, length=10.0, color=color)
+        arrows.append(arrow)
+
+    # Combine segments + arrows for visualization
+    geometries = list(segments.values()) + arrows
+    o3d.visualization.draw_geometries(geometries)
 
 def initKdtree(tree):
     """Initialize k-d tree in each worker process."""
@@ -582,7 +747,7 @@ def calculatePointwiseNormalVariance_open3d(
     return all_normals, normalized_variation
 
 
-def getCorePoints(pointwise_variance, percentile=60):
+def getCorePoints(pointwise_variance, percentile=90):
     threshold = np.percentile(pointwise_variance, percentile)  # Compute 90th percentile
     core_indices = np.where(pointwise_variance >= threshold)[0]  # Indices of core points
     
@@ -615,7 +780,7 @@ def is_within_bend_limits(point, bend_edge):
     return 0 <= projection_scalar <= bend_length
 
 
-def growRegionsAroundIntersections(anchor_points_dict, core_indices, pointwise_variance, points, bend_edges, search_radius=1.5, min_neighbors=20, variance_percentile=50):
+def growRegionsAroundIntersections(anchor_points_dict, core_indices, pointwise_variance, points, bend_edges, search_radius=1.5, min_neighbors=20, variance_percentile=90):
     """
     Grows a region/cluster around anchor points, enforcing bend constraints.
 

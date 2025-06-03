@@ -51,7 +51,7 @@ class BendLengthCalculator:
                 [k, idx, _] = self.pcd_tree.search_radius_vector_3d(sampled_anchor_point, self.radius)        
 
                 #Exit condition 1: Point cloud boundary reached
-                if k < 8:
+                if k < 5:
                     if forward == False:
                         #print(f'Backward bend ended at {sampled_anchor_point}')
                         bend_edges_dict[i+1] = (forward_edge, sampled_anchor_point)
