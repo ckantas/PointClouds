@@ -95,7 +95,7 @@ def multiOrderRansacAdvanced(pcd, pt_to_plane_dist, visualize=False, verbose=Fal
 
     if verbose:
         print('Clustering remaining points')
-    labels = np.array(remaining.cluster_dbscan(eps=0.8, min_points=50))
+    labels = np.array(remaining.cluster_dbscan(eps=1.2, min_points=15))
 
     num_clusters = labels.max() + 1
     if verbose:
@@ -115,7 +115,7 @@ def multiOrderRansacAdvanced(pcd, pt_to_plane_dist, visualize=False, verbose=Fal
     main_plane_normal = np.array(plane_model[:3])
     main_plane_normal = main_plane_normal / np.linalg.norm(main_plane_normal)
 
-    angle_threshold = 15  # degrees
+    angle_threshold = 10  # degrees
 
     if verbose:
         print('Fitting planes to remaining clusters and filtering')
@@ -235,6 +235,13 @@ def flip_normals_by_bend_orientation(segment_models, intersection_lines, segment
     aligned_models = {}
     main_normal = np.array(segment_models[main_surface_idx][:3])
     main_normal /= np.linalg.norm(main_normal)
+
+    if main_normal[2] < 0:
+        if verbose:
+            print("🔄 Flipping main surface normal to face upward")
+        segment_models[main_surface_idx] = -1 * segment_models[main_surface_idx]
+        main_normal = -1 * main_normal
+        
     main_plane_model = segment_models[main_surface_idx]
 
     for idx, model in segment_models.items():
