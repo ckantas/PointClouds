@@ -565,6 +565,49 @@ def draw_normal_arrows(segment_models, segments, main_surface_idx):
     geometries = list(segments.values()) + arrows
     o3d.visualization.draw_geometries(geometries)
 
+def create_normal_arrow_mesh(start_point, direction, length=10.0, cylinder_radius=0.2, cone_radius=0.4, color=[0.1, 0.7, 0.3]):
+    direction = direction / np.linalg.norm(direction)
+    end_point = start_point + direction * length
+
+    # Cylinder
+    cylinder = o3d.geometry.TriangleMesh.create_cylinder(radius=cylinder_radius, height=length * 0.8)
+    cylinder.paint_uniform_color(color)
+
+    z_axis = np.array([0, 0, 1])
+    rot_axis = np.cross(z_axis, direction)
+    if np.linalg.norm(rot_axis) > 1e-6:
+        rot_axis /= np.linalg.norm(rot_axis)
+        angle = np.arccos(np.clip(np.dot(z_axis, direction), -1.0, 1.0))
+        R = o3d.geometry.get_rotation_matrix_from_axis_angle(rot_axis * angle)
+        cylinder.rotate(R, center=np.zeros(3))
+
+    cylinder.translate(start_point + direction * (length * 0.4))
+
+    # Cone
+    cone_height = length * 0.2
+    cone = o3d.geometry.TriangleMesh.create_cone(radius=cone_radius, height=cone_height)
+    cone.paint_uniform_color(color)
+    cone.rotate(R, center=np.zeros(3))
+    cone.translate(end_point - direction * (cone_height * 1))
+
+    return [cylinder, cone]
+
+def draw_normal_arrows_with_geometry(segment_models, segments, main_surface_idx=None, random_flip=True):
+    arrows = []
+
+    for idx, model in segment_models.items():
+        normal = np.array(model[:3])
+        normal = normal / np.linalg.norm(normal)
+
+        if random_flip and np.random.rand() > 0.5:
+            normal *= -1  # Flip 180 degrees
+
+        center = np.array(segments[idx].get_center())
+        arrow_parts = create_normal_arrow_mesh(center, normal, length=8.0)
+        arrows.extend(arrow_parts)
+
+    o3d.visualization.draw_geometries(list(segments.values()) + arrows)
+
 def initKdtree(tree):
     """Initialize k-d tree in each worker process."""
     global kdtree
@@ -754,7 +797,7 @@ def calculatePointwiseNormalVariance_open3d(
     return all_normals, normalized_variation
 
 
-def getCorePoints(pointwise_variance, percentile=90):
+def getCorePoints(pointwise_variance, percentile=65):
     threshold = np.percentile(pointwise_variance, percentile)  # Compute 90th percentile
     core_indices = np.where(pointwise_variance >= threshold)[0]  # Indices of core points
     
